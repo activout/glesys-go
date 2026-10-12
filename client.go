@@ -52,7 +52,7 @@ func NewClient(project, apiKey, userAgent string) *Client {
 	c := &Client{
 		apiKey:     apiKey,
 		BaseURL:    BaseURL,
-		httpClient: http.DefaultClient,
+		httpClient: &http.Client{CheckRedirect: func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse }},
 		project:    project,
 		userAgent:  userAgent,
 	}
@@ -146,32 +146,34 @@ func (c *Client) do(request *http.Request, v interface{}) error {
 }
 
 func handleResponseError(response *http.Response) error {
-	data := struct {
-		Response struct {
-			Status struct {
-				Text string `json:"text"`
-			} `json:"status"`
-		} `json:"response"`
-	}{}
-
-	err := parseResponseBody(response, &data)
-	if err != nil {
-		return err
-	}
-
-	return fmt.Errorf("request failed with HTTP error: %v (%v)", response.StatusCode, strings.TrimSpace(data.Response.Status.Text))
+	defer response.Body.Close()
+	body, _ := io.ReadAll(io.LimitReader(response.Body, maxResponseBytes))
+	var data statusEnvelope
+	_ = json.Unmarshal(body, &data)
+	return &APIError{HTTPStatus: response.StatusCode, ProviderStatus: data.Response.Status.Code, Message: strings.TrimSpace(data.Response.Status.Text), RetryAfter: response.Header.Get("Retry-After")}
 }
 
 func parseResponseBody(response *http.Response, v interface{}) error {
-	if v == nil {
-		return nil
-	}
-
 	defer response.Body.Close()
-	body, err := io.ReadAll(response.Body)
+	body, err := io.ReadAll(io.LimitReader(response.Body, maxResponseBytes+1))
 	if err != nil {
 		return err
 	}
-
+	if len(body) > maxResponseBytes {
+		return fmt.Errorf("API response exceeds %d bytes", maxResponseBytes)
+	}
+	if !json.Valid(body) {
+		return fmt.Errorf("API returned invalid or empty JSON")
+	}
+	var status statusEnvelope
+	if err := json.Unmarshal(body, &status); err != nil {
+		return err
+	}
+	if status.Response.Status.Code >= 400 {
+		return &APIError{HTTPStatus: response.StatusCode, ProviderStatus: status.Response.Status.Code, Message: status.Response.Status.Text, RetryAfter: response.Header.Get("Retry-After")}
+	}
+	if v == nil {
+		return nil
+	}
 	return json.Unmarshal(body, v)
 }
