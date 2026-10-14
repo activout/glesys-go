@@ -307,3 +307,15 @@ func requestBody(t *testing.T, r *http.Request) map[string]interface{} {
 	assert.NoError(t, json.NewDecoder(r.Body).Decode(&body))
 	return body
 }
+
+func TestEmailCostsDetailsPreservesAmounts(t *testing.T) {
+	for _, amount := range []string{`0.125`, `"0.125"`} {
+		c := &mockClient{body: `{"response":{"costs":{},"pricelist":{"quota":{"amount":` + amount + `,"currency":"SEK","unit":"GiB"}}}}`}
+		s := EmailDomainService{client: c}
+
+		details, err := s.CostsDetails(context.Background())
+		assert.NoError(t, err)
+		assert.Equal(t, "email/costs", c.lastPath)
+		assert.Contains(t, string(details.PriceList), `"amount":`+amount)
+	}
+}

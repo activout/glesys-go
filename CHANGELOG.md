@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 - Always close response bodies and limit response size to 16 MiB.
 - Escape the `Filter` parameter in `EmailDomains.Overview`.
 ### Added
+- `EmailDomains.CostsDetails` which preserves the actual types of pricing fields, such as numeric quota amounts.
 - `EmailDomains.EditAccountPatch`, `EmailDomains.CreateAccountWithSettings` and `EmailAccountPatch` for settings where zero and empty values are significant.
 - `Client.Request` and `ValidateEndpoint` for calling endpoints not yet wrapped by this package.
 - `Client.SetHTTPClient` to supply a custom `*http.Client`.
