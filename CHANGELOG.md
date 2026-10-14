@@ -4,6 +4,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 ## Unreleased
+### Fixed
+- Return an error when the API reports a failure status (code >= 400) in an HTTP 200 response.
+- Reject empty or malformed JSON responses.
+- Always close response bodies and limit response size to 16 MiB.
+- Escape the `Filter` parameter in `EmailDomains.Overview`.
+### Added
+- `Servers.EditPatch` and `ServerPatch` for sending only the fields to change, allowing a description or backup schedule to be cleared.
+- `DNSDomains.UpdateRecordPatch` and `DNSRecordPatch` for sending only the fields to change, including empty values and a zero TTL.
+- `EmailDomains.CostsDetails` which preserves the actual types of pricing fields, such as numeric quota amounts.
+- `EmailDomains.EditAccountPatch`, `EmailDomains.CreateAccountWithSettings` and `EmailAccountPatch` for settings where zero and empty values are significant.
+- `Client.Request` and `ValidateEndpoint` for calling endpoints not yet wrapped by this package.
+- `Client.SetHTTPClient` to supply a custom `*http.Client`.
+- `APIError`, returned for failed requests, exposing HTTP status, API status, message and `Retry-After`. Usable with `errors.As`.
+### Changed
+- The default HTTP client no longer follows redirects, to avoid forwarding credentials.
 
 ## [8.5.0] - 2025-09-01
 ### Added

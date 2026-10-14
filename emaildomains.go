@@ -2,6 +2,7 @@ package glesys
 
 import (
 	"context"
+	"encoding/json"
 	"net/url"
 	"strconv"
 	"strings"
@@ -323,4 +324,75 @@ func (em *EmailDomainService) ResetPassword(context context.Context, emailaccoun
 	}{emailaccount})
 
 	return data.Response.Password, err
+}
+
+// EmailAccountPatch holds email account settings. Fields left nil are omitted
+// from the request, while explicit zero, false and empty values are sent.
+type EmailAccountPatch struct {
+	AntiSpamLevel      *int    `json:"antispamlevel,omitempty"`
+	AntiVirus          *string `json:"antivirus,omitempty"`
+	AutoRespond        *string `json:"autorespond,omitempty"`
+	AutoRespondMessage *string `json:"autorespondmessage,omitempty"`
+	QuotaInGiB         *int    `json:"quotaingib,omitempty"`
+	RejectSpam         *string `json:"rejectspam,omitempty"`
+}
+
+// EditAccountPatch edits an email account like EditAccount, but only sends the
+// settings that are set in patch, so zero and empty values can be applied.
+func (em *EmailDomainService) EditAccountPatch(context context.Context, emailAccount string, patch EmailAccountPatch) (*EmailAccount, error) {
+	data := struct {
+		Response struct {
+			EmailAccount EmailAccount
+		}
+	}{}
+
+	err := em.client.post(context, "email/editaccount", &data, struct {
+		EmailAccountPatch
+		EmailAccount string `json:"emailaccount"`
+	}{patch, emailAccount})
+
+	return &data.Response.EmailAccount, err
+}
+
+// CreateAccountWithSettings creates an email account with the settings that are
+// set in patch. Unlike CreateAccount it does not send a password; the API
+// generates one, which is returned in the Password field.
+func (em *EmailDomainService) CreateAccountWithSettings(context context.Context, emailAccount string, patch EmailAccountPatch) (*EmailAccount, error) {
+	data := struct {
+		Response struct {
+			EmailAccount EmailAccount
+			Password     string `json:"password"`
+		}
+	}{}
+
+	err := em.client.post(context, "email/createaccount", &data, struct {
+		EmailAccountPatch
+		EmailAccount string `json:"emailaccount"`
+	}{patch, emailAccount})
+
+	if data.Response.EmailAccount.Password == "" {
+		data.Response.EmailAccount.Password = data.Response.Password
+	}
+
+	return &data.Response.EmailAccount, err
+}
+
+// EmailCostsDetails holds the raw costs and pricelist from email/costs.
+// Unlike EmailCosts, field types and decimal precision are preserved, as the
+// API returns numeric values (for example quota amounts) that EmailCosts
+// cannot decode into its string fields.
+type EmailCostsDetails struct {
+	Costs     json.RawMessage `json:"costs"`
+	PriceList json.RawMessage `json:"pricelist"`
+}
+
+// CostsDetails fetches email costs and prices without interpreting field types.
+func (em *EmailDomainService) CostsDetails(context context.Context) (*EmailCostsDetails, error) {
+	data := struct {
+		Response EmailCostsDetails
+	}{}
+
+	err := em.client.get(context, "email/costs", &data)
+
+	return &data.Response, err
 }

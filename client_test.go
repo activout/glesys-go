@@ -4,8 +4,11 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -128,4 +131,137 @@ func TestPost(t *testing.T) {
 
 	assert.Equal(t, "POST", mockClient.lastRequest.Method, "method used is correct")
 	assert.Equal(t, "bar", params.Foo, "params are correct")
+}
+
+type trackedBody struct {
+	io.Reader
+	closed bool
+}
+
+func (b *trackedBody) Close() error { b.closed = true; return nil }
+
+func TestParseResponseBody(t *testing.T) {
+	for _, tc := range []struct {
+		name, body string
+		result     interface{}
+		wantErr    bool
+	}{
+		{"nil result", `{"response":{}}`, nil, false},
+		{"valid", `{"response":{"status":{"code":200}}}`, &struct{}{}, false},
+		{"malformed", "oops", nil, true},
+		{"empty", "", nil, true},
+		{"provider error on HTTP 200", `{"response":{"status":{"code":409,"text":"conflict"}}}`, nil, true},
+		{"too large", strings.Repeat(" ", maxResponseBytes+1), nil, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			b := &trackedBody{Reader: strings.NewReader(tc.body)}
+			err := parseResponseBody(&http.Response{Body: b, StatusCode: 200}, tc.result)
+			assert.Equal(t, tc.wantErr, err != nil)
+			assert.True(t, b.closed, "body must be closed")
+		})
+	}
+}
+
+func TestHandleResponseErrorClosesBody(t *testing.T) {
+	b := &trackedBody{Reader: strings.NewReader("not JSON")}
+	err := handleResponseError(&http.Response{Body: b, StatusCode: 502})
+	assert.EqualError(t, err, "request failed with HTTP error: 502 ()")
+	assert.True(t, b.closed)
+}
+
+func TestAPIError(t *testing.T) {
+	b := &trackedBody{Reader: strings.NewReader(`{"response":{"status":{"code":429,"text":" slow down "}}}`)}
+	err := handleResponseError(&http.Response{Body: b, StatusCode: 429, Header: http.Header{"Retry-After": []string{"1"}}})
+
+	var apiErr *APIError
+	assert.True(t, errors.As(err, &apiErr))
+	assert.Equal(t, 429, apiErr.HTTPStatus)
+	assert.Equal(t, 429, apiErr.ProviderStatus)
+	assert.Equal(t, "slow down", apiErr.Message)
+	assert.Equal(t, "1", apiErr.RetryAfter)
+	assert.EqualError(t, err, "request failed with HTTP error: 429 (slow down)")
+
+	// A non-JSON body is not exposed, but the HTTP status is retained.
+	b = &trackedBody{Reader: strings.NewReader("<html>secret</html>")}
+	err = handleResponseError(&http.Response{Body: b, StatusCode: 503})
+	assert.True(t, errors.As(err, &apiErr))
+	assert.Equal(t, 503, apiErr.HTTPStatus)
+	assert.NotContains(t, err.Error(), "secret")
+
+	// Provider failures reported with HTTP 200 are also APIErrors.
+	b = &trackedBody{Reader: strings.NewReader(`{"response":{"status":{"code":409,"text":"conflict"}}}`)}
+	err = parseResponseBody(&http.Response{Body: b, StatusCode: 200}, nil)
+	assert.True(t, errors.As(err, &apiErr))
+	assert.Equal(t, 200, apiErr.HTTPStatus)
+	assert.Equal(t, 409, apiErr.ProviderStatus)
+}
+
+func TestSetHTTPClient(t *testing.T) {
+	custom := &http.Client{}
+	client := NewClient("project-id", "api-key", "test")
+	client.SetHTTPClient(custom)
+	assert.Same(t, custom, client.httpClient)
+}
+
+func TestDefaultClientDoesNotFollowRedirects(t *testing.T) {
+	reached := false
+	other := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { reached = true }))
+	defer other.Close()
+	source := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, other.URL, http.StatusTemporaryRedirect)
+	}))
+	defer source.Close()
+
+	client := NewClient("project-id", "api-key", "test")
+	assert.NoError(t, client.SetBaseURL(source.URL))
+	err := client.get(context.Background(), "email/costs", nil)
+	assert.Error(t, err)
+	assert.False(t, reached)
+}
+
+func TestClientRequest(t *testing.T) {
+	var paths []string
+	var bodies []map[string]interface{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		paths = append(paths, r.URL.EscapedPath())
+		var body map[string]interface{}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		bodies = append(bodies, body)
+		_, _ = io.WriteString(w, `{"response":{"status":{"code":200},"id":9007199254740993123,"future":{"a":true}}}`)
+	}))
+	defer server.Close()
+
+	client := NewClient("project-id", "api-key", "test")
+	assert.NoError(t, client.SetBaseURL(server.URL))
+	client.httpClient = server.Client()
+
+	raw, err := client.Request(context.Background(), "post", "email/quota", map[string]interface{}{"emailaccount": "a@example.com"})
+	assert.NoError(t, err)
+	assert.Contains(t, string(raw), "9007199254740993123")
+	assert.Contains(t, string(raw), "future")
+	assert.Equal(t, "a@example.com", bodies[0]["emailaccount"])
+
+	_, err = client.Request(context.Background(), "GET", "email/list", map[string]interface{}{"filter": "a/b@c", "domainname": "example.com"})
+	assert.NoError(t, err)
+	assert.Equal(t, "/email/list/domainname/example.com/filter/a%2Fb@c", paths[1])
+}
+
+func TestClientRequestValidation(t *testing.T) {
+	c := &mockHTTPClient{body: `{"response":{}}`, statusCode: 200}
+	client := NewClient("project-id", "api-key", "test")
+	client.httpClient = c
+
+	for _, endpoint := range []string{"https://evil.test/x", "//evil.test/x", "../email/quota", "email/../quota", "email/quota?x=y", "email/%2e%2e", "email\\quota", ""} {
+		_, err := client.Request(context.Background(), "POST", endpoint, nil)
+		assert.Error(t, err, endpoint)
+	}
+	_, err := client.Request(context.Background(), "GET", "email/list", map[string]interface{}{"bad/name": "x"})
+	assert.Error(t, err)
+	_, err = client.Request(context.Background(), "GET", "email/list", map[string]interface{}{"x": ".."})
+	assert.Error(t, err)
+	_, err = client.Request(context.Background(), "GET", "email/list", map[string]interface{}{"x": []string{"a"}})
+	assert.Error(t, err)
+	_, err = client.Request(context.Background(), "DELETE", "email/list", nil)
+	assert.Error(t, err)
+	assert.Nil(t, c.lastRequest, "invalid requests must not reach the network")
 }

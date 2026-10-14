@@ -2,6 +2,7 @@ package glesys
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -326,4 +327,21 @@ func TestServersTemplates(t *testing.T) {
 func TestGenerateHostnameReturnsAHostnameInTheCorrectFormat(t *testing.T) {
 	hostname := generateHostname()
 	assert.Regexp(t, "^\\w+-\\w+-\\d{3}$", hostname, "Hostname is dasherized and contains two words followed by a number")
+}
+
+func TestServerEditPatch(t *testing.T) {
+	empty := ""
+	schedules := []ServerBackupSchedule{}
+	c := &mockHTTPClient{body: `{"response":{"server":{"serverid":"wps123456"}}}`, statusCode: 200}
+	client := NewClient("project-id", "api-key", "test")
+	client.httpClient = c
+
+	server, err := client.Servers.EditPatch(context.Background(), "wps123456", ServerPatch{Description: &empty, Backup: &schedules})
+	assert.NoError(t, err)
+	assert.Equal(t, "wps123456", server.ID)
+	assert.Equal(t, "/server/edit", c.lastRequest.URL.Path)
+
+	var body map[string]interface{}
+	assert.NoError(t, json.NewDecoder(c.lastRequest.Body).Decode(&body))
+	assert.Equal(t, map[string]interface{}{"serverid": "wps123456", "description": "", "backupschedules": []interface{}{}}, body)
 }

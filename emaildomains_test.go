@@ -2,6 +2,8 @@ package glesys
 
 import (
 	"context"
+	"encoding/json"
+	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -259,4 +261,61 @@ func TestResetPassword(t *testing.T) {
 	assert.Equal(t, "POST", c.lastMethod, "method used is correct")
 	assert.Equal(t, "email/resetpassword", c.lastPath, "path used is correct")
 	assert.Equal(t, "S3cr3t}pw!", newPw, "password is correct")
+}
+
+func TestEmailDomainsOverviewEscapesFilter(t *testing.T) {
+	c := &mockHTTPClient{body: `{"response":{"overview":{}}}`, statusCode: 200}
+	client := NewClient("project-id", "api-key", "test")
+	client.httpClient = c
+
+	_, err := client.EmailDomains.Overview(context.Background(), OverviewParams{Filter: "a/b?c#d", Page: 1})
+	assert.NoError(t, err)
+	assert.Equal(t, "/email/overview/filter/a%2Fb%3Fc%23d/page/1", c.lastRequest.URL.EscapedPath())
+
+	_, err = client.EmailDomains.Overview(context.Background(), OverviewParams{Filter: ".."})
+	assert.NoError(t, err)
+	assert.Equal(t, "/email/overview/filter/%2E%2E", c.lastRequest.URL.EscapedPath())
+}
+
+func TestEmailAccountPatch(t *testing.T) {
+	zero, empty, no := 0, "", "no"
+	c := &mockHTTPClient{body: `{"response":{"emailaccount":{"emailaccount":"a@example.com"},"password":"generated"}}`, statusCode: 200}
+	client := NewClient("project-id", "api-key", "test")
+	client.httpClient = c
+
+	_, err := client.EmailDomains.EditAccountPatch(context.Background(), "a@example.com", EmailAccountPatch{AntiSpamLevel: &zero, AutoRespond: &no, AutoRespondMessage: &empty})
+	assert.NoError(t, err)
+	assert.Equal(t, "/email/editaccount", c.lastRequest.URL.Path)
+	body := requestBody(t, c.lastRequest)
+	assert.Equal(t, float64(0), body["antispamlevel"])
+	assert.Equal(t, "no", body["autorespond"])
+	assert.Equal(t, "", body["autorespondmessage"])
+	assert.Equal(t, "a@example.com", body["emailaccount"])
+	assert.NotContains(t, body, "quotaingib")
+
+	account, err := client.EmailDomains.CreateAccountWithSettings(context.Background(), "a@example.com", EmailAccountPatch{})
+	assert.NoError(t, err)
+	assert.Equal(t, "/email/createaccount", c.lastRequest.URL.Path)
+	body = requestBody(t, c.lastRequest)
+	assert.Equal(t, map[string]interface{}{"emailaccount": "a@example.com"}, body)
+	assert.Equal(t, "generated", account.Password)
+}
+
+func requestBody(t *testing.T, r *http.Request) map[string]interface{} {
+	t.Helper()
+	var body map[string]interface{}
+	assert.NoError(t, json.NewDecoder(r.Body).Decode(&body))
+	return body
+}
+
+func TestEmailCostsDetailsPreservesAmounts(t *testing.T) {
+	for _, amount := range []string{`0.125`, `"0.125"`} {
+		c := &mockClient{body: `{"response":{"costs":{},"pricelist":{"quota":{"amount":` + amount + `,"currency":"SEK","unit":"GiB"}}}}`}
+		s := EmailDomainService{client: c}
+
+		details, err := s.CostsDetails(context.Background())
+		assert.NoError(t, err)
+		assert.Equal(t, "email/costs", c.lastPath)
+		assert.Contains(t, string(details.PriceList), `"amount":`+amount)
+	}
 }
