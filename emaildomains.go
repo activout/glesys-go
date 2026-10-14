@@ -2,6 +2,7 @@ package glesys
 
 import (
 	"context"
+	"encoding/json"
 	"strconv"
 	"strings"
 )
@@ -318,4 +319,24 @@ func (em *EmailDomainService) ResetPassword(context context.Context, emailaccoun
 	}{emailaccount})
 
 	return data.Response.Password, err
+}
+
+// EmailCostsDetails holds the raw costs and pricelist from email/costs.
+// Unlike EmailCosts, field types and decimal precision are preserved, as the
+// API returns numeric values (for example quota amounts) that EmailCosts
+// cannot decode into its string fields.
+type EmailCostsDetails struct {
+	Costs     json.RawMessage `json:"costs"`
+	PriceList json.RawMessage `json:"pricelist"`
+}
+
+// CostsDetails fetches email costs and prices without interpreting field types.
+func (em *EmailDomainService) CostsDetails(context context.Context) (*EmailCostsDetails, error) {
+	data := struct {
+		Response EmailCostsDetails
+	}{}
+
+	err := em.client.get(context, "email/costs", &data)
+
+	return &data.Response, err
 }

@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 ## Unreleased
+### Added
+- `EmailDomains.CostsDetails` which preserves the actual types of pricing fields, such as numeric quota amounts.
 
 ## [8.5.0] - 2025-09-01
 ### Added

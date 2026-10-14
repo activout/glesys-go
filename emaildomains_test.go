@@ -260,3 +260,15 @@ func TestResetPassword(t *testing.T) {
 	assert.Equal(t, "email/resetpassword", c.lastPath, "path used is correct")
 	assert.Equal(t, "S3cr3t}pw!", newPw, "password is correct")
 }
+
+func TestEmailCostsDetailsPreservesAmounts(t *testing.T) {
+	for _, amount := range []string{`0.125`, `"0.125"`} {
+		c := &mockClient{body: `{"response":{"costs":{},"pricelist":{"quota":{"amount":` + amount + `,"currency":"SEK","unit":"GiB"}}}}`}
+		s := EmailDomainService{client: c}
+
+		details, err := s.CostsDetails(context.Background())
+		assert.NoError(t, err)
+		assert.Equal(t, "email/costs", c.lastPath)
+		assert.Contains(t, string(details.PriceList), `"amount":`+amount)
+	}
+}
