@@ -2,6 +2,8 @@ package glesys
 
 import (
 	"context"
+	"encoding/json"
+	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -259,4 +261,35 @@ func TestResetPassword(t *testing.T) {
 	assert.Equal(t, "POST", c.lastMethod, "method used is correct")
 	assert.Equal(t, "email/resetpassword", c.lastPath, "path used is correct")
 	assert.Equal(t, "S3cr3t}pw!", newPw, "password is correct")
+}
+
+func TestEmailAccountPatch(t *testing.T) {
+	zero, empty, no := 0, "", "no"
+	c := &mockHTTPClient{body: `{"response":{"emailaccount":{"emailaccount":"a@example.com"},"password":"generated"}}`, statusCode: 200}
+	client := NewClient("project-id", "api-key", "test")
+	client.httpClient = c
+
+	_, err := client.EmailDomains.EditAccountPatch(context.Background(), "a@example.com", EmailAccountPatch{AntiSpamLevel: &zero, AutoRespond: &no, AutoRespondMessage: &empty})
+	assert.NoError(t, err)
+	assert.Equal(t, "/email/editaccount", c.lastRequest.URL.Path)
+	body := requestBody(t, c.lastRequest)
+	assert.Equal(t, float64(0), body["antispamlevel"])
+	assert.Equal(t, "no", body["autorespond"])
+	assert.Equal(t, "", body["autorespondmessage"])
+	assert.Equal(t, "a@example.com", body["emailaccount"])
+	assert.NotContains(t, body, "quotaingib")
+
+	account, err := client.EmailDomains.CreateAccountWithSettings(context.Background(), "a@example.com", EmailAccountPatch{})
+	assert.NoError(t, err)
+	assert.Equal(t, "/email/createaccount", c.lastRequest.URL.Path)
+	body = requestBody(t, c.lastRequest)
+	assert.Equal(t, map[string]interface{}{"emailaccount": "a@example.com"}, body)
+	assert.Equal(t, "generated", account.Password)
+}
+
+func requestBody(t *testing.T, r *http.Request) map[string]interface{} {
+	t.Helper()
+	var body map[string]interface{}
+	assert.NoError(t, json.NewDecoder(r.Body).Decode(&body))
+	return body
 }
