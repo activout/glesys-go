@@ -7,6 +7,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -193,4 +194,27 @@ func TestAPIError(t *testing.T) {
 	assert.True(t, errors.As(err, &apiErr))
 	assert.Equal(t, 200, apiErr.HTTPStatus)
 	assert.Equal(t, 409, apiErr.ProviderStatus)
+}
+
+func TestSetHTTPClient(t *testing.T) {
+	custom := &http.Client{}
+	client := NewClient("project-id", "api-key", "test")
+	client.SetHTTPClient(custom)
+	assert.Same(t, custom, client.httpClient)
+}
+
+func TestDefaultClientDoesNotFollowRedirects(t *testing.T) {
+	reached := false
+	other := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { reached = true }))
+	defer other.Close()
+	source := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, other.URL, http.StatusTemporaryRedirect)
+	}))
+	defer source.Close()
+
+	client := NewClient("project-id", "api-key", "test")
+	assert.NoError(t, client.SetBaseURL(source.URL))
+	err := client.get(context.Background(), "email/costs", nil)
+	assert.Error(t, err)
+	assert.False(t, reached)
 }

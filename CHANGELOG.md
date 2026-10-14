@@ -10,7 +10,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 - Always close response bodies and limit response size to 16 MiB.
 - Escape the `Filter` parameter in `EmailDomains.Overview`.
 ### Added
+- `Client.SetHTTPClient` to supply a custom `*http.Client`.
 - `APIError`, returned for failed requests, exposing HTTP status, API status, message and `Retry-After`. Usable with `errors.As`.
+### Changed
+- The default HTTP client no longer follows redirects, to avoid forwarding credentials.
 
 ## [8.5.0] - 2025-09-01
 ### Added
