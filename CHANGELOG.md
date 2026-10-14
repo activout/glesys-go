@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 - Return an error when the API reports a failure status (code >= 400) in an HTTP 200 response.
 - Reject empty or malformed JSON responses.
 - Always close response bodies and limit response size to 16 MiB.
+### Added
+- `APIError`, returned for failed requests, exposing HTTP status, API status, message and `Retry-After`. Usable with `errors.As`.
 
 ## [8.5.0] - 2025-09-01
 ### Added
