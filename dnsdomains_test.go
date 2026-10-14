@@ -2,6 +2,7 @@ package glesys
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -312,4 +313,20 @@ func TestDnsDomainsExport(t *testing.T) {
 
 	assert.Equal(t, "POST", c.lastMethod, "method is used correct")
 	assert.Equal(t, "domain/export", c.lastPath, "path used is correct")
+}
+
+func TestDNSUpdateRecordPatch(t *testing.T) {
+	empty, zero := "", 0
+	c := &mockHTTPClient{body: `{"response":{"record":{"recordid":7}}}`, statusCode: 200}
+	client := NewClient("project-id", "api-key", "test")
+	client.httpClient = c
+
+	record, err := client.DNSDomains.UpdateRecordPatch(context.Background(), DNSRecordPatch{RecordID: 7, Host: &empty, TTL: &zero})
+	assert.NoError(t, err)
+	assert.Equal(t, 7, record.RecordID)
+	assert.Equal(t, "/domain/updaterecord", c.lastRequest.URL.Path)
+
+	var body map[string]interface{}
+	assert.NoError(t, json.NewDecoder(c.lastRequest.Body).Decode(&body))
+	assert.Equal(t, map[string]interface{}{"recordid": float64(7), "host": "", "ttl": float64(0)}, body)
 }
