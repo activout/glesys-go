@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 - Reject empty or malformed JSON responses.
 - Always close response bodies and limit response size to 16 MiB.
 - Escape the `Filter` parameter in `EmailDomains.Overview`.
+### Added
+- `APIError`, returned for failed requests, exposing HTTP status, API status, message and `Retry-After`. Usable with `errors.As`.
 
 ## [8.5.0] - 2025-09-01
 ### Added

@@ -156,13 +156,34 @@ type statusEnvelope struct {
 	} `json:"response"`
 }
 
+// APIError describes a failed API request. Use errors.As to inspect it.
+type APIError struct {
+	// HTTPStatus is the HTTP status code of the response.
+	HTTPStatus int
+	// ProviderStatus is the status code reported in the API response body, if any.
+	ProviderStatus int
+	// Message is the status text reported by the API, if any.
+	Message string
+	// RetryAfter is the value of the Retry-After header, if any.
+	RetryAfter string
+}
+
+func (e *APIError) Error() string {
+	return fmt.Sprintf("request failed with HTTP error: %d (%s)", e.HTTPStatus, e.Message)
+}
+
 func handleResponseError(response *http.Response) error {
 	defer response.Body.Close()
 	body, _ := io.ReadAll(io.LimitReader(response.Body, maxResponseBytes))
 	var data statusEnvelope
 	_ = json.Unmarshal(body, &data)
 
-	return fmt.Errorf("request failed with HTTP error: %v (%v)", response.StatusCode, strings.TrimSpace(data.Response.Status.Text))
+	return &APIError{
+		HTTPStatus:     response.StatusCode,
+		ProviderStatus: data.Response.Status.Code,
+		Message:        strings.TrimSpace(data.Response.Status.Text),
+		RetryAfter:     response.Header.Get("Retry-After"),
+	}
 }
 
 func parseResponseBody(response *http.Response, v interface{}) error {
@@ -183,7 +204,12 @@ func parseResponseBody(response *http.Response, v interface{}) error {
 		return err
 	}
 	if status.Response.Status.Code >= 400 {
-		return fmt.Errorf("request failed with API error: %v (%v)", status.Response.Status.Code, strings.TrimSpace(status.Response.Status.Text))
+		return &APIError{
+			HTTPStatus:     response.StatusCode,
+			ProviderStatus: status.Response.Status.Code,
+			Message:        strings.TrimSpace(status.Response.Status.Text),
+			RetryAfter:     response.Header.Get("Retry-After"),
+		}
 	}
 
 	if v == nil {

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"strings"
@@ -165,4 +166,31 @@ func TestHandleResponseErrorClosesBody(t *testing.T) {
 	err := handleResponseError(&http.Response{Body: b, StatusCode: 502})
 	assert.EqualError(t, err, "request failed with HTTP error: 502 ()")
 	assert.True(t, b.closed)
+}
+
+func TestAPIError(t *testing.T) {
+	b := &trackedBody{Reader: strings.NewReader(`{"response":{"status":{"code":429,"text":" slow down "}}}`)}
+	err := handleResponseError(&http.Response{Body: b, StatusCode: 429, Header: http.Header{"Retry-After": []string{"1"}}})
+
+	var apiErr *APIError
+	assert.True(t, errors.As(err, &apiErr))
+	assert.Equal(t, 429, apiErr.HTTPStatus)
+	assert.Equal(t, 429, apiErr.ProviderStatus)
+	assert.Equal(t, "slow down", apiErr.Message)
+	assert.Equal(t, "1", apiErr.RetryAfter)
+	assert.EqualError(t, err, "request failed with HTTP error: 429 (slow down)")
+
+	// A non-JSON body is not exposed, but the HTTP status is retained.
+	b = &trackedBody{Reader: strings.NewReader("<html>secret</html>")}
+	err = handleResponseError(&http.Response{Body: b, StatusCode: 503})
+	assert.True(t, errors.As(err, &apiErr))
+	assert.Equal(t, 503, apiErr.HTTPStatus)
+	assert.NotContains(t, err.Error(), "secret")
+
+	// Provider failures reported with HTTP 200 are also APIErrors.
+	b = &trackedBody{Reader: strings.NewReader(`{"response":{"status":{"code":409,"text":"conflict"}}}`)}
+	err = parseResponseBody(&http.Response{Body: b, StatusCode: 200}, nil)
+	assert.True(t, errors.As(err, &apiErr))
+	assert.Equal(t, 200, apiErr.HTTPStatus)
+	assert.Equal(t, 409, apiErr.ProviderStatus)
 }
