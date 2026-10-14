@@ -323,3 +323,27 @@ func (s *DNSDomainService) DeleteRecord(context context.Context, recordID int) e
 func (s *DNSDomainService) ChangeNameservers(context context.Context, params ChangeNameserverParams) error {
 	return s.client.post(context, "domain/changenameservers", nil, params)
 }
+
+// DNSRecordPatch holds the fields to change on a DNS record. Fields left nil
+// are omitted from the request, while explicit empty values and a zero TTL are sent.
+type DNSRecordPatch struct {
+	RecordID int     `json:"recordid"`
+	Data     *string `json:"data,omitempty"`
+	Host     *string `json:"host,omitempty"`
+	Type     *string `json:"type,omitempty"`
+	TTL      *int    `json:"ttl,omitempty"`
+}
+
+// UpdateRecordPatch updates a DNS record like UpdateRecord, but only sends the
+// fields that are set in patch.
+func (s *DNSDomainService) UpdateRecordPatch(context context.Context, patch DNSRecordPatch) (*DNSDomainRecord, error) {
+	data := struct {
+		Response struct {
+			Record DNSDomainRecord
+		}
+	}{}
+
+	err := s.client.post(context, "domain/updaterecord", &data, patch)
+
+	return &data.Response.Record, err
+}
