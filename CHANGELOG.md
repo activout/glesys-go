@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 ### Changed
 - Servers `WithDefaults()` now uses the `debian-stable` template tag instead of the obsolete `Debian 11 (Bullseye)`.
 - The default HTTP client of `Client` and `Login` no longer follows redirects, to avoid forwarding credentials.
+### Fixed
+- Reject empty or malformed JSON responses.
+- Always close response bodies and limit response size to 16 MiB.
 
 ## [8.6.0] - 2026-11-04
 ### Added

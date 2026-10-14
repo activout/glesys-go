@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -155,4 +156,40 @@ func TestDefaultClientDoesNotFollowRedirects(t *testing.T) {
 	err := client.get(context.Background(), "email/costs", nil)
 	assert.Error(t, err)
 	assert.False(t, reached)
+}
+
+type trackedBody struct {
+	io.Reader
+	closed bool
+}
+
+func (b *trackedBody) Close() error { b.closed = true; return nil }
+
+func TestParseResponseBody(t *testing.T) {
+	for _, tc := range []struct {
+		name, body string
+		result     interface{}
+		wantErr    bool
+	}{
+		{"nil result", `{"response":{}}`, nil, false},
+		{"valid", `{"response":{"status":{"code":200}}}`, &struct{}{}, false},
+		{"malformed", "oops", nil, true},
+		{"empty", "", nil, true},
+		{"malformed with result", "oops", &struct{}{}, true},
+		{"too large", strings.Repeat(" ", maxResponseBytes+1), nil, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			b := &trackedBody{Reader: strings.NewReader(tc.body)}
+			err := parseResponseBody(&http.Response{Body: b, StatusCode: 200}, tc.result)
+			assert.Equal(t, tc.wantErr, err != nil)
+			assert.True(t, b.closed, "body must be closed")
+		})
+	}
+}
+
+func TestHandleResponseErrorClosesBody(t *testing.T) {
+	b := &trackedBody{Reader: strings.NewReader("not JSON")}
+	err := handleResponseError(&http.Response{Body: b, StatusCode: 502})
+	assert.EqualError(t, err, "request failed with HTTP error: 502 ()")
+	assert.True(t, b.closed)
 }
