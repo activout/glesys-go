@@ -388,3 +388,31 @@ func generateHostname() string {
 
 	return strings.Join(sections, "-")
 }
+
+// ServerPatch holds the fields to change on a server. Fields left nil are
+// omitted from the request, so a description or backup schedule can be
+// explicitly cleared with an empty value.
+type ServerPatch struct {
+	CPU         *int                    `json:"cpucores,omitempty"`
+	Memory      *int                    `json:"memorysize,omitempty"`
+	Storage     *int                    `json:"disksize,omitempty"`
+	Hostname    *string                 `json:"hostname,omitempty"`
+	Description *string                 `json:"description,omitempty"`
+	Backup      *[]ServerBackupSchedule `json:"backupschedules,omitempty"`
+}
+
+// EditPatch edits a server like Edit, but only sends the fields that are set in patch.
+func (s *ServerService) EditPatch(context context.Context, serverID string, patch ServerPatch) (*ServerDetails, error) {
+	data := struct {
+		Response struct {
+			Server ServerDetails
+		}
+	}{}
+
+	err := s.client.post(context, "server/edit", &data, struct {
+		ServerPatch
+		ServerID string `json:"serverid"`
+	}{patch, serverID})
+
+	return &data.Response.Server, err
+}
