@@ -5,6 +5,12 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 ## Unreleased
 
+## [8.6.0] - 2026-11-04
+### Added
+- Implemented `blockstorage` endpoint.
+### Changed
+- `server` Edit no longer supports bandwidth argument.
+
 ## [8.5.0] - 2025-09-01
 ### Added
 - Implemented `database` endpoints.
