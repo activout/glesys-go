@@ -1,7 +1,6 @@
 # SDK additions for elg
 
-Based on upstream commit `a25ba1b2ddb53c61a9cb1fc53888c98b9ac0b67e`, following
-the official v8.5.0 release. The module remains `github.com/glesys/glesys-go/v8`.
+Based on upstream release v8.6.0 (commit `c0b0043`), merged into this fork. The module remains `github.com/glesys/glesys-go/v8`.
 The original MIT licence and public methods remain intact.
 
 Additions:
