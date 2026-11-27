@@ -172,13 +172,14 @@ func handleResponseError(response *http.Response) error {
 	data := struct {
 		Response struct {
 			Status struct {
+				Code int    `json:"code"`
 				Text string `json:"text"`
 			} `json:"status"`
 		} `json:"response"`
 	}{}
 	_ = json.Unmarshal(body, &data)
 
-	return fmt.Errorf("request failed with HTTP error: %v (%v)", response.StatusCode, strings.TrimSpace(data.Response.Status.Text))
+	return &APIError{HTTPStatus: response.StatusCode, ProviderStatus: data.Response.Status.Code, Message: strings.TrimSpace(data.Response.Status.Text), RetryAfter: response.Header.Get("Retry-After")}
 }
 
 func parseResponseBody(response *http.Response, v interface{}) error {
