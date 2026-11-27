@@ -1,14 +1,17 @@
 # SDK additions for elg
 
-Based on upstream release v8.6.0 (commit `c0b0043`), merged into this fork. The module remains `github.com/glesys/glesys-go/v8`.
+Based on upstream `master` (commit `dae169a`, after v8.6.0). The module remains `github.com/glesys/glesys-go/v8`.
 The original MIT licence and public methods remain intact.
 
-Additions:
+Proposed upstream (reworked after review):
 
-- `Client.Request`: complete JSON responses through the existing transport,
-  validated relative endpoints and scalar GET path parameters.
-- `Client.SetHTTPClient`: per-client transport injection; callers configure their
-  own redirect policy. The default client refuses redirects.
+- glesys/glesys-go#145: every response body is closed, reads are bounded at 16 MiB,
+  and malformed or empty JSON is rejected when the caller passes no result.
+- glesys/glesys-go#146: `Client.SetHTTPClient` and `Login.SetHTTPClient`; the
+  default client refuses redirects and `nil` restores it.
+
+Fork-only additions:
+
 - `APIError`: HTTP status, provider status/message and Retry-After, usable with
   `errors.As`. Non-JSON HTTP errors retain their status without exposing bodies.
 - `EmailAccountPatch`, `EditAccountPatch`, `CreateAccountWithSettings`:
@@ -19,11 +22,8 @@ Additions:
   string field could not decode.
 - `DNSRecordPatch` and `ServerPatch`: preserve explicit clearing during edits.
 
-Fixes: every response body is closed, reads are bounded at 16 MiB, malformed or
-empty success JSON is rejected, provider failure status is retained even on HTTP
-200, and overview filters are escaped. HTTP 200 remains the verified success
-status; this patch does not assume all 2xx statuses have interchangeable meaning.
+Not carried (declined upstream in #144 and #147): `Client.Request`/`ValidateEndpoint`
+(elg makes raw API calls itself) and overview filter escaping (the API does not
+unescape filters; elg rejects filters that would alter the request path).
 
 Run `gofmt`, `go vet ./...`, `go test ./...`, and `go test -race ./...`.
-Local `httptest` exchanges cover the public additions and transport lifecycle.
-No mutation against live resources was used to verify these patches.
