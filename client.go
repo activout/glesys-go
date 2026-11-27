@@ -53,7 +53,7 @@ func NewClient(project, apiKey, userAgent string) *Client {
 	c := &Client{
 		apiKey:     apiKey,
 		BaseURL:    BaseURL,
-		httpClient: &http.Client{CheckRedirect: func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse }},
+		httpClient: newDefaultHTTPClient(),
 		project:    project,
 		userAgent:  userAgent,
 	}
@@ -99,6 +99,23 @@ func (c *Client) post(ctx context.Context, path string, v interface{}, params in
 		return err
 	}
 	return c.do(request, v)
+}
+
+// SetHTTPClient sets the HTTP client used for requests. It does not affect
+// http.DefaultClient. The default client does not follow redirects, so that
+// credentials are never sent to another host; callers supplying their own
+// client should configure a redirect policy with that in mind. A nil client
+// restores the default.
+func (c *Client) SetHTTPClient(client *http.Client) {
+	if client == nil {
+		client = newDefaultHTTPClient()
+	}
+	c.httpClient = client
+}
+
+// newDefaultHTTPClient returns a client that does not follow redirects.
+func newDefaultHTTPClient() *http.Client {
+	return &http.Client{CheckRedirect: func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse }}
 }
 
 func (c *Client) newRequest(ctx context.Context, method, path string, params interface{}) (*http.Request, error) {
@@ -147,11 +164,21 @@ func (c *Client) do(request *http.Request, v interface{}) error {
 	return parseResponseBody(response, v)
 }
 
+const maxResponseBytes = 16 << 20
+
 func handleResponseError(response *http.Response) error {
 	defer response.Body.Close()
 	body, _ := io.ReadAll(io.LimitReader(response.Body, maxResponseBytes))
-	var data statusEnvelope
+	data := struct {
+		Response struct {
+			Status struct {
+				Code int    `json:"code"`
+				Text string `json:"text"`
+			} `json:"status"`
+		} `json:"response"`
+	}{}
 	_ = json.Unmarshal(body, &data)
+
 	return &APIError{HTTPStatus: response.StatusCode, ProviderStatus: data.Response.Status.Code, Message: strings.TrimSpace(data.Response.Status.Text), RetryAfter: response.Header.Get("Retry-After")}
 }
 
@@ -164,18 +191,12 @@ func parseResponseBody(response *http.Response, v interface{}) error {
 	if len(body) > maxResponseBytes {
 		return fmt.Errorf("API response exceeds %d bytes", maxResponseBytes)
 	}
-	if !json.Valid(body) {
-		return fmt.Errorf("API returned invalid or empty JSON")
-	}
-	var status statusEnvelope
-	if err := json.Unmarshal(body, &status); err != nil {
-		return err
-	}
-	if status.Response.Status.Code >= 400 {
-		return &APIError{HTTPStatus: response.StatusCode, ProviderStatus: status.Response.Status.Code, Message: status.Response.Status.Text, RetryAfter: response.Header.Get("Retry-After")}
-	}
 	if v == nil {
+		if !json.Valid(body) {
+			return fmt.Errorf("API returned invalid or empty JSON")
+		}
 		return nil
 	}
+
 	return json.Unmarshal(body, v)
 }
